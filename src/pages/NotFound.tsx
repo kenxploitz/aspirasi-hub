@@ -1,68 +1,22 @@
-import { useLocation, useNavigate } from "react-router-dom";
-import { useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { Home, ArrowLeft, Search, Sparkles } from "lucide-react";
-import { ThemeToggle } from "@/components/ThemeToggle";
+import { useNavigate } from "react-router-dom";
+import { ArrowLeft, Home } from "lucide-react";
 
 const NotFound = () => {
-  const location = useLocation();
   const navigate = useNavigate();
-
-  useEffect(() => {
-    console.error("404 Error: User attempted to access non-existent route:", location.pathname);
-  }, [location.pathname]);
-
   return (
-    <div className="min-h-screen bg-gradient-to-br from-primary/5 via-background to-accent/5 flex items-center justify-center px-4 relative overflow-hidden">
-      {/* Animated background */}
-      <div className="absolute inset-0 overflow-hidden pointer-events-none">
-        <div className="absolute top-20 left-20 w-72 h-72 bg-primary/10 rounded-full blur-3xl animate-pulse" />
-        <div className="absolute bottom-20 right-20 w-96 h-96 bg-accent/10 rounded-full blur-3xl animate-pulse" style={{ animationDelay: '1s' }} />
-        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[500px] h-[500px] bg-secondary/5 rounded-full blur-3xl animate-pulse" style={{ animationDelay: '2s' }} />
-      </div>
-
-      <ThemeToggle />
-
-      <Card className="max-w-lg p-12 text-center animate-fade-in shadow-2xl border-2 border-primary/20 bg-card/95 backdrop-blur-md">
-        <div className="relative w-32 h-32 mx-auto mb-8">
-          <div className="absolute inset-0 bg-gradient-to-br from-primary/30 to-accent/30 rounded-full blur-2xl animate-pulse" />
-          <div className="relative w-32 h-32 rounded-full bg-gradient-to-br from-primary/20 to-accent/20 flex items-center justify-center">
-            <Search className="w-16 h-16 text-primary" />
-          </div>
-        </div>
-        
-        <div className="mb-8">
-          <h1 className="text-8xl font-bold bg-gradient-to-r from-primary via-accent to-secondary bg-clip-text text-transparent mb-4">
-            404
-          </h1>
-          <h2 className="text-2xl font-bold mb-3">Halaman Tidak Ditemukan</h2>
-          <p className="text-muted-foreground text-lg">
-            Maaf, halaman yang Anda cari tidak dapat ditemukan atau sudah dipindahkan.
-          </p>
-        </div>
-
-        <div className="flex flex-col sm:flex-row gap-4 justify-center">
-          <Button
-            onClick={() => navigate(-1)}
-            variant="outline"
-            className="border-2 hover:scale-105 transition-all duration-300"
-          >
-            <ArrowLeft className="mr-2 h-4 w-4" />
-            Kembali
+    <div className="min-h-screen bg-background flex items-center justify-center px-4">
+      <Card className="p-8 max-w-sm text-center border border-border">
+        <p className="text-5xl font-bold text-foreground mb-2">404</p>
+        <p className="text-sm text-muted-foreground mb-4">Halaman tidak ditemukan.</p>
+        <div className="flex gap-2 justify-center">
+          <Button variant="outline" size="sm" className="h-8 text-xs" onClick={() => navigate(-1)}>
+            <ArrowLeft className="mr-1.5 h-3.5 w-3.5" />Kembali
           </Button>
-          <Button
-            onClick={() => navigate("/")}
-            className="bg-gradient-to-r from-primary to-accent text-white hover:opacity-90 hover:scale-105 transition-all duration-300"
-          >
-            <Home className="mr-2 h-4 w-4" />
-            Ke Beranda
+          <Button size="sm" className="h-8 text-xs bg-primary text-primary-foreground hover:bg-primary/90" onClick={() => navigate("/")}>
+            <Home className="mr-1.5 h-3.5 w-3.5" />Beranda
           </Button>
-        </div>
-
-        <div className="mt-8 flex items-center justify-center gap-2 text-sm text-muted-foreground">
-          <Sparkles className="w-4 h-4 text-primary" />
-          <span>Forum Aspirasi Siswa</span>
         </div>
       </Card>
     </div>
