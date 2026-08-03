@@ -12,7 +12,7 @@ import { ThemeToggle } from "@/components/ThemeToggle";
 import {
   ArrowLeft, Save, Loader2, Eye, EyeOff, Wifi, Settings, CheckCircle2, XCircle,
   Shield, Database, Upload, Download, AlertTriangle, Wrench, Globe, Clock,
-  RefreshCw, FileJson, FileText, Zap, Server, HardDrive,
+  RefreshCw, FileJson, FileText, Zap, Server, HardDrive, Image, Building2, Users,
 } from "lucide-react";
 
 const SettingsPage = () => {
@@ -24,8 +24,10 @@ const SettingsPage = () => {
   const [showKey, setShowKey] = useState(false);
   const [testResult, setTestResult] = useState<"idle" | "success" | "error">("idle");
   const [testMessage, setTestMessage] = useState("");
-  const [activeTab, setActiveTab] = useState<"ai" | "site" | "backup">("site");
+  const [activeTab, setActiveTab] = useState<"ai" | "site" | "backup" | "branding">("site");
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const schoolLogoRef = useRef<HTMLInputElement>(null);
+  const orgLogoRef = useRef<HTMLInputElement>(null);
 
   // AI Settings
   const [aiForm, setAiForm] = useState({
@@ -45,7 +47,15 @@ const SettingsPage = () => {
     min_aspiration_length: 10,
     enable_ai_curhat: true,
     enable_anonymous: true,
+    school_logo_url: "",
+    org_logo_url: "",
+    org_name: "MPK SMA Negeri 1 Kendal",
   });
+
+  // Logo upload state
+  const [isUploadingLogo, setIsUploadingLogo] = useState(false);
+  const [schoolLogoPreview, setSchoolLogoPreview] = useState<string | null>(null);
+  const [orgLogoPreview, setOrgLogoPreview] = useState<string | null>(null);
 
   // Backup state
   const [isBackingUp, setIsBackingUp] = useState(false);
@@ -91,7 +101,12 @@ const SettingsPage = () => {
           min_aspiration_length: settingsData.min_aspiration_length || 10,
           enable_ai_curhat: settingsData.enable_ai_curhat !== false,
           enable_anonymous: settingsData.enable_anonymous !== false,
+          school_logo_url: settingsData.school_logo_url || "",
+          org_logo_url: settingsData.org_logo_url || "",
+          org_name: settingsData.org_name || "MPK SMA Negeri 1 Kendal",
         });
+        if (settingsData.school_logo_url) setSchoolLogoPreview(settingsData.school_logo_url);
+        if (settingsData.org_logo_url) setOrgLogoPreview(settingsData.org_logo_url);
       }
 
       // Get last backup info
@@ -153,6 +168,52 @@ const SettingsPage = () => {
     } catch (e: any) {
       toast({ title: "Gagal menyimpan", description: e.message, variant: "destructive" });
     } finally { setIsSaving(false); }
+  };
+
+  const handleLogoUpload = async (file: File, type: "school" | "org") => {
+    try {
+      setIsUploadingLogo(true);
+      const ext = file.name.split('.').pop() || 'png';
+      const fileName = `${type}-logo-${Date.now()}.${ext}`;
+
+      // Upload to Supabase Storage
+      const { error: uploadError } = await supabase.storage
+        .from("logos")
+        .upload(fileName, file, { upsert: true });
+
+      if (uploadError) throw uploadError;
+
+      // Get public URL
+      const { data: urlData } = supabase.storage
+        .from("logos")
+        .getPublicUrl(fileName);
+
+      const logoUrl = urlData.publicUrl;
+
+      // Update state
+      if (type === "school") {
+        setSiteSettings((s) => ({ ...s, school_logo_url: logoUrl }));
+        setSchoolLogoPreview(logoUrl);
+      } else {
+        setSiteSettings((s) => ({ ...s, org_logo_url: logoUrl }));
+        setOrgLogoPreview(logoUrl);
+      }
+
+      // Save to database
+      const updateField = type === "school" ? "school_logo_url" : "org_logo_url";
+      const { error: dbError } = await supabase
+        .from("site_settings")
+        .update({ [updateField]: logoUrl })
+        .neq("id", "00000000-0000-0000-0000-000000000000");
+
+      if (dbError) throw dbError;
+
+      toast({ title: `Logo ${type === "school" ? "sekolah" : "organisasi"} berhasil diupload` });
+    } catch (e: any) {
+      toast({ title: "Gagal upload logo", description: e.message, variant: "destructive" });
+    } finally {
+      setIsUploadingLogo(false);
+    }
   };
 
   const handleBackup = async (format: "json" | "sql") => {
@@ -252,9 +313,10 @@ const SettingsPage = () => {
         </div>
 
         {/* Tab Navigation */}
-        <div className="flex gap-2 mb-6 animate-fade-in" style={{ animationDelay: '0.1s' }}>
+        <div className="flex gap-2 mb-6 animate-fade-in flex-wrap" style={{ animationDelay: '0.1s' }}>
           {[
             { id: "site" as const, label: "Situs", icon: Globe },
+            { id: "branding" as const, label: "Branding", icon: Image },
             { id: "ai" as const, label: "AI", icon: Zap },
             { id: "backup" as const, label: "Backup", icon: Database },
           ].map((tab) => (
@@ -393,6 +455,124 @@ const SettingsPage = () => {
                 Simpan Pengaturan
               </Button>
             </div>
+          </div>
+        )}
+
+        {/* Branding Settings */}
+        {activeTab === "branding" && (
+          <div className="space-y-6 animate-fade-in" style={{ animationDelay: '0.2s' }}>
+            {/* School Logo */}
+            <Card className="p-6 shadow-xl border-2 border-primary/20 bg-card/80 backdrop-blur-md">
+              <div className="flex items-center gap-3 mb-6">
+                <div className="p-2 rounded-lg bg-primary/10">
+                  <Building2 className="w-6 h-6 text-primary" />
+                </div>
+                <div>
+                  <h2 className="text-xl font-bold">Logo Sekolah</h2>
+                  <p className="text-sm text-muted-foreground">Upload logo sekolah untuk ditampilkan di homepage</p>
+                </div>
+              </div>
+
+              <div className="flex flex-col md:flex-row gap-6">
+                <div className="flex-1">
+                  <div className="border-2 border-dashed border-primary/20 rounded-xl p-8 text-center hover:border-primary/50 transition-colors cursor-pointer"
+                    onClick={() => schoolLogoRef.current?.click()}>
+                    {schoolLogoPreview ? (
+                      <div className="space-y-4">
+                        <img src={schoolLogoPreview} alt="Logo Sekolah" className="max-h-32 mx-auto object-contain" />
+                        <p className="text-sm text-muted-foreground">Klik untuk mengganti</p>
+                      </div>
+                    ) : (
+                      <div className="space-y-4">
+                        <Upload className="h-12 w-12 text-muted-foreground mx-auto" />
+                        <div>
+                          <p className="font-medium">Upload Logo Sekolah</p>
+                          <p className="text-sm text-muted-foreground">PNG, JPG, SVG (max 2MB)</p>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                  <input ref={schoolLogoRef} type="file" accept="image/*" className="hidden"
+                    onChange={(e) => { const f = e.target.files?.[0]; if (f) handleLogoUpload(f, "school"); }} />
+                </div>
+                <div className="flex-1 space-y-3">
+                  <Label className="text-sm">Nama Sekolah</Label>
+                  <Input value={siteSettings.school_name}
+                    onChange={(e) => setSiteSettings({ ...siteSettings, school_name: e.target.value })} />
+                  <p className="text-xs text-muted-foreground">Nama sekolah akan ditampilkan di homepage dan laporan</p>
+                </div>
+              </div>
+            </Card>
+
+            {/* Organization Logo */}
+            <Card className="p-6 shadow-xl border-2 border-accent/20 bg-card/80 backdrop-blur-md">
+              <div className="flex items-center gap-3 mb-6">
+                <div className="p-2 rounded-lg bg-accent/10">
+                  <Users className="w-6 h-6 text-accent" />
+                </div>
+                <div>
+                  <h2 className="text-xl font-bold">Logo Organisasi</h2>
+                  <p className="text-sm text-muted-foreground">Upload logo MPK/OSIS untuk ditampilkan di homepage</p>
+                </div>
+              </div>
+
+              <div className="flex flex-col md:flex-row gap-6">
+                <div className="flex-1">
+                  <div className="border-2 border-dashed border-accent/20 rounded-xl p-8 text-center hover:border-accent/50 transition-colors cursor-pointer"
+                    onClick={() => orgLogoRef.current?.click()}>
+                    {orgLogoPreview ? (
+                      <div className="space-y-4">
+                        <img src={orgLogoPreview} alt="Logo Organisasi" className="max-h-32 mx-auto object-contain" />
+                        <p className="text-sm text-muted-foreground">Klik untuk mengganti</p>
+                      </div>
+                    ) : (
+                      <div className="space-y-4">
+                        <Upload className="h-12 w-12 text-muted-foreground mx-auto" />
+                        <div>
+                          <p className="font-medium">Upload Logo Organisasi</p>
+                          <p className="text-sm text-muted-foreground">PNG, JPG, SVG (max 2MB)</p>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                  <input ref={orgLogoRef} type="file" accept="image/*" className="hidden"
+                    onChange={(e) => { const f = e.target.files?.[0]; if (f) handleLogoUpload(f, "org"); }} />
+                </div>
+                <div className="flex-1 space-y-3">
+                  <Label className="text-sm">Nama Organisasi</Label>
+                  <Input value={siteSettings.org_name}
+                    onChange={(e) => setSiteSettings({ ...siteSettings, org_name: e.target.value })} />
+                  <p className="text-xs text-muted-foreground">Contoh: MPK, OSIS, DKM</p>
+                </div>
+              </div>
+            </Card>
+
+            {/* Preview */}
+            <Card className="p-6 shadow-xl border-2 border-secondary/20 bg-card/80 backdrop-blur-md">
+              <div className="flex items-center gap-3 mb-4">
+                <div className="p-2 rounded-lg bg-secondary/10">
+                  <Image className="w-6 h-6 text-secondary" />
+                </div>
+                <h2 className="text-xl font-bold">Preview Logo</h2>
+              </div>
+              <div className="flex items-center justify-center gap-8 p-8 bg-muted/30 rounded-xl">
+                {schoolLogoPreview ? (
+                  <img src={schoolLogoPreview} alt="School" className="h-16 object-contain" />
+                ) : (
+                  <div className="h-16 w-16 bg-muted rounded-lg flex items-center justify-center">
+                    <Building2 className="h-8 w-8 text-muted-foreground" />
+                  </div>
+                )}
+                <div className="h-12 w-px bg-border" />
+                {orgLogoPreview ? (
+                  <img src={orgLogoPreview} alt="Org" className="h-16 object-contain" />
+                ) : (
+                  <div className="h-16 w-16 bg-muted rounded-lg flex items-center justify-center">
+                    <Users className="h-8 w-8 text-muted-foreground" />
+                  </div>
+                )}
+              </div>
+            </Card>
           </div>
         )}
 

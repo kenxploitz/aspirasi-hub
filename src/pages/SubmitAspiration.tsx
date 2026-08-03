@@ -136,46 +136,46 @@ const SubmitAspiration = () => {
 
       <ThemeToggle />
 
-      <div className="container max-w-3xl mx-auto relative z-10">
+      <div className="container max-w-2xl mx-auto relative z-10 px-4">
         <Button
           variant="ghost"
-          className="mb-8 hover:bg-muted/80 backdrop-blur-sm border border-border/50 transition-all duration-300 hover:scale-105"
+          className="mb-6 hover:bg-muted/80 backdrop-blur-sm border border-border/50 transition-all duration-300"
           onClick={() => navigate("/")}
         >
           <ArrowLeft className="mr-2 h-4 w-4" />
           Kembali
         </Button>
 
-        <Card className="p-10 md:p-14 animate-fade-in shadow-2xl border-2 border-primary/20 backdrop-blur-md bg-card/95 hover:shadow-3xl transition-all duration-500">
-          <div className="text-center mb-10">
-            <div className="relative w-20 h-20 mx-auto mb-6">
-              <div className="absolute inset-0 bg-gradient-to-br from-primary/30 to-accent/30 rounded-2xl blur-xl animate-pulse" />
-              <div className="relative w-20 h-20 rounded-2xl bg-gradient-to-br from-primary via-accent to-secondary flex items-center justify-center shadow-2xl">
-                <Sparkles className="w-10 h-10 text-white" />
+        <Card className="p-6 md:p-10 animate-fade-in shadow-xl border border-border/50 backdrop-blur-md bg-card/95">
+          <div className="text-center mb-8">
+            <div className="relative w-16 h-16 mx-auto mb-4">
+              <div className="absolute inset-0 bg-gradient-to-br from-primary/30 to-accent/30 rounded-xl blur-lg animate-pulse" />
+              <div className="relative w-16 h-16 rounded-xl bg-gradient-to-br from-primary via-accent to-secondary flex items-center justify-center shadow-xl">
+                <Sparkles className="w-8 h-8 text-white" />
               </div>
             </div>
-            <h1 className="text-4xl md:text-5xl font-bold mb-4 bg-gradient-to-r from-primary via-accent to-secondary bg-clip-text text-transparent">
+            <h1 className="text-3xl md:text-4xl font-bold mb-3 bg-gradient-to-r from-primary via-accent to-secondary bg-clip-text text-transparent">
               Kirim Aspirasi
             </h1>
-            <p className="text-muted-foreground text-lg">
-              Sampaikan pendapat, saran, atau keluhan Anda dengan jujur dan aman ✨
+            <p className="text-muted-foreground text-base">
+              Sampaikan pendapat, saran, atau keluhan Anda ✨
             </p>
-            <p className="text-sm text-muted-foreground mt-2 flex items-center justify-center gap-2">
-              <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
-              Identitas Anda akan tetap terjaga kerahasiaannya
+            <p className="text-xs text-muted-foreground mt-2 flex items-center justify-center gap-1.5">
+              <span className="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse" />
+              Identitas Anda terjaga kerahasiaannya
             </p>
           </div>
 
-          <form onSubmit={handleSubmit} className="space-y-8">
+          <form onSubmit={handleSubmit} className="space-y-6">
             {/* Honeypot — hidden from real users */}
             <div style={{ position: "absolute", left: "-9999px", opacity: 0, height: 0, overflow: "hidden" }} aria-hidden="true">
               <Label htmlFor={HONEYPOT}>Website</Label>
               <Input id={HONEYPOT} type="text" tabIndex={-1} autoComplete="off" value={formData[HONEYPOT]} onChange={(e) => setFormData({ ...formData, [HONEYPOT]: e.target.value })} />
             </div>
 
-            <div className="grid md:grid-cols-2 gap-6">
-              <div className="space-y-3">
-                <Label htmlFor="studentName" className="flex items-center gap-2 text-base">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="studentName" className="flex items-center gap-2 text-sm">
                   <User className="w-4 h-4 text-primary" />
                   Nama (Opsional)
                 </Label>
@@ -186,15 +186,15 @@ const SubmitAspiration = () => {
                   onChange={(e) =>
                     setFormData({ ...formData, studentName: e.target.value })
                   }
-                  className={`py-6 text-base border-2 transition-all duration-300 focus:border-primary hover:border-primary/50 ${errors.studentName ? "border-destructive" : ""}`}
+                  className={`py-5 text-base border-2 transition-all duration-300 focus:border-primary ${errors.studentName ? "border-destructive" : ""}`}
                 />
                 {errors.studentName && (
                   <p className="text-sm text-destructive">{errors.studentName}</p>
                 )}
               </div>
 
-              <div className="space-y-3">
-                <Label htmlFor="studentClass" className="flex items-center gap-2 text-base">
+              <div className="space-y-2">
+                <Label htmlFor="studentClass" className="flex items-center gap-2 text-sm">
                   <GraduationCap className="w-4 h-4 text-accent" />
                   Kelas (Opsional)
                 </Label>
@@ -205,7 +205,7 @@ const SubmitAspiration = () => {
                   onChange={(e) =>
                     setFormData({ ...formData, studentClass: e.target.value })
                   }
-                  className={`py-6 text-base border-2 transition-all duration-300 focus:border-accent hover:border-accent/50 ${errors.studentClass ? "border-destructive" : ""}`}
+                  className={`py-5 text-base border-2 transition-all duration-300 focus:border-accent ${errors.studentClass ? "border-destructive" : ""}`}
                 />
                 {errors.studentClass && (
                   <p className="text-sm text-destructive">{errors.studentClass}</p>
@@ -213,20 +213,20 @@ const SubmitAspiration = () => {
               </div>
             </div>
 
-            <div className="space-y-3">
-              <Label htmlFor="content" className="flex items-center gap-2 text-base">
+            <div className="space-y-2">
+              <Label htmlFor="content" className="flex items-center gap-2 text-sm">
                 <FileText className="w-4 h-4 text-secondary" />
                 Aspirasi <span className="text-destructive">*</span>
               </Label>
               <Textarea
                 id="content"
-                placeholder="Tuliskan aspirasi Anda di sini dengan jelas dan detail..."
-                rows={8}
+                placeholder="Tuliskan aspirasi Anda di sini..."
+                rows={6}
                 value={formData.content}
                 onChange={(e) =>
                   setFormData({ ...formData, content: e.target.value })
                 }
-                className={`text-base border-2 transition-all duration-300 focus:border-secondary hover:border-secondary/50 resize-none ${errors.content ? "border-destructive" : ""}`}
+                className={`text-base border-2 transition-all duration-300 focus:border-secondary resize-none ${errors.content ? "border-destructive" : ""}`}
               />
               <div className="flex items-center justify-between">
                 <p className="text-sm text-muted-foreground">
@@ -246,18 +246,18 @@ const SubmitAspiration = () => {
 
             <Button
               type="submit"
-              className="w-full bg-gradient-to-r from-primary via-accent to-secondary hover:opacity-90 text-white font-bold py-8 text-xl shadow-2xl transition-all duration-300 hover:scale-[1.02] hover:shadow-3xl"
+              className="w-full bg-gradient-to-r from-primary via-accent to-secondary hover:opacity-90 text-white font-bold py-6 text-lg shadow-xl transition-all duration-300"
               disabled={isSubmitting}
             >
               {isSubmitting ? (
-                <span className="flex items-center justify-center gap-3">
-                  <div className="w-6 h-6 border-3 border-white border-t-transparent rounded-full animate-spin" />
+                <span className="flex items-center justify-center gap-2">
+                  <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
                   Mengirim...
                 </span>
               ) : (
-                <span className="flex items-center justify-center gap-3">
-                  <Send className="h-6 w-6" />
-                  Kirim
+                <span className="flex items-center justify-center gap-2">
+                  <Send className="h-5 w-5" />
+                  Kirim Aspirasi
                 </span>
               )}
             </Button>
