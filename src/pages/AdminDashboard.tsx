@@ -5,7 +5,6 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { useToast } from "@/hooks/use-toast";
 import {
   LogOut, Search, MessageSquare, FileText, BarChart3, Loader2, Trash,
@@ -29,7 +28,6 @@ import autoTable from "jspdf-autotable";
 import { exportToWord } from "@/lib/export/exportToWord";
 import { exportToExcel } from "@/lib/export/exportToExcel";
 import { exportToPptx } from "@/lib/export/exportToPptx";
-import AiAdminChatPanel from "@/components/AiAdminChatPanel";
 
 interface Aspiration {
   id: string;
@@ -62,7 +60,6 @@ const AdminDashboard = () => {
   const [viewMode, setViewMode] = useState<ViewMode>("aspirations");
   const [selectionMode, setSelectionMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-  const [showAiChat, setShowAiChat] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const [isImporting, setIsImporting] = useState(false);
   const importInputRef = useRef<HTMLInputElement>(null);
@@ -565,42 +562,19 @@ const AdminDashboard = () => {
 
         {/* ── AI ASSISTANT BUTTON ── */}
         {viewMode === "aspirations" && (
-          <button onClick={() => setShowAiChat(true)}
-            className="fixed bottom-6 right-6 z-40 w-14 h-14 rounded-2xl bg-gradient-to-br from-primary via-accent to-secondary text-white flex items-center justify-center shadow-2xl hover:scale-110 hover:shadow-3xl transition-all duration-300">
-            <Sparkles className="h-6 w-6" />
+          <button onClick={() => navigate("/admin/ai")}
+            className="fixed bottom-6 right-6 z-40 group">
+            <div className="relative">
+              <div className="absolute inset-0 bg-gradient-to-r from-primary to-accent rounded-2xl blur-lg opacity-60 group-hover:opacity-100 transition-opacity" />
+              <div className="relative w-14 h-14 rounded-2xl bg-gradient-to-br from-primary via-accent to-secondary text-white flex items-center justify-center shadow-2xl hover:scale-110 hover:shadow-3xl transition-all duration-300">
+                <Sparkles className="h-6 w-6" />
+              </div>
+            </div>
+            <div className="absolute bottom-full right-0 mb-2 px-3 py-1.5 bg-gray-900 text-white text-xs rounded-lg opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap">
+              Asisten AI Admin
+            </div>
           </button>
         )}
-
-        {/* ── AI CHAT SHEET ── */}
-        <Sheet open={showAiChat} onOpenChange={setShowAiChat}>
-          <SheetContent side="right" className="w-full sm:w-[440px] p-0 bg-card/95 backdrop-blur-md">
-            <SheetTitle className="sr-only">Asisten AI</SheetTitle>
-            <AiAdminChatPanel
-              aspirations={aspirations}
-              currentFilters={{ status: statusFilter, dateFrom: dateRange?.from?.toISOString(), dateTo: dateRange?.to?.toISOString(), searchQuery }}
-              onApplyFilters={(f) => {
-                if (f.status) setStatusFilter(f.status);
-                if (typeof f.search_query === "string") setSearchQuery(f.search_query);
-                if (f.date_from || f.date_to) setDateRange({ from: f.date_from ? new Date(f.date_from) : undefined, to: f.date_to ? new Date(f.date_to) : undefined });
-              }}
-              onTriggerExport={(ids, fmt) => {
-                if (fmt === "pdf") handleDownloadPDF(ids);
-                else if (fmt === "word") handleExportWord(ids);
-                else if (fmt === "excel") handleExportExcel(ids);
-                else if (fmt === "pptx") handleExportPptx(ids);
-              }}
-              onMarkStatus={async (ids, status) => { for (const id of ids) { await supabase.from("aspirations").update({ status }).eq("id", id); } fetchAspirations(); toast({ title: `${ids.length} aspirasi ditandai` }); }}
-              onSelectAspirations={(ids) => { setSelectionMode(true); setSelectedIds(new Set(ids)); toast({ title: `${ids.length} aspirasi dicentang otomatis oleh AI` }); }}
-              onDeleteAspirations={async (ids) => {
-                if (!window.confirm(`YAKIN MENGHAPUS ${ids.length} ASPIRASI?`)) return;
-                for (const id of ids) { await supabase.from("aspirations").delete().eq("id", id); }
-                fetchAspirations();
-                toast({ title: `${ids.length} aspirasi dihapus` });
-              }}
-              onClose={() => setShowAiChat(false)}
-            />
-          </SheetContent>
-        </Sheet>
       </div>
     </div>
   );

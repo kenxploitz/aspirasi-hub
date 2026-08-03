@@ -10,6 +10,7 @@ import AdminLogin from "./pages/AdminLogin";
 import AdminDashboard from "./pages/AdminDashboard";
 import Statistics from "./pages/Statistics";
 import AiSettingsPage from "./pages/admin/AiSettingsPage";
+import AdminAiPage from "./pages/AdminAiPage";
 import NotFound from "./pages/NotFound";
 import ClientAiChatWidget from "./components/ClientAiChatWidget";
 
@@ -27,6 +28,7 @@ const AppContent = () => {
         <Route path="/admin/login" element={<AdminLogin />} />
         <Route path="/admin/dashboard" element={<AdminDashboard />} />
         <Route path="/admin/statistics" element={<Statistics />} />
+        <Route path="/admin/ai" element={<AdminAiPage />} />
         <Route path="/admin/settings/ai" element={<AiSettingsPage />} />
         <Route path="*" element={<NotFound />} />
       </Routes>
