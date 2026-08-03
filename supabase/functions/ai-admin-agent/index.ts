@@ -1,25 +1,76 @@
 // AI Admin Agent Edge Function — Tool-calling based assistant
-// Allows admin to cluster, filter, mark status, export via natural language
+// Bisa: cari, hitung statistik, lihat detail lengkap, kelompokkan topik,
+// tandai status, ubah filter/pilihan, ekspor 4 format, dan usul hapus (tetap
+// perlu konfirmasi manusia di UI — agent TIDAK PERNAH menghapus langsung).
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { getCorsHeaders, handleCors } from "../_shared/cors.ts";
 
-const SYSTEM_PROMPT = `Kamu adalah asisten AI internal untuk admin sekolah dalam mengelola aspirasi siswa di aplikasi Aspirasi Hub. Tugasmu: membantu admin mengelompokkan aspirasi berdasarkan topik, menandai status tanggapan, memfilter, dan memicu unduhan laporan sesuai instruksi admin — dengan memanggil tools yang tersedia. Selalu jelaskan secara ringkas apa yang kamu lakukan dan kenapa (misal alasan pengelompokan topik). Jangan pernah mengarang data aspirasi yang tidak ada dalam konteks yang diberikan. Jika instruksi admin ambigu (misal 'topik ini' tanpa kejelasan), tanyakan klarifikasi singkat sebelum bertindak. Kamu HANYA beroperasi dalam konteks data aspirasi sekolah ini, tidak menjawab pertanyaan umum di luar tugas ini.`;
+const SYSTEM_PROMPT = `Kamu adalah asisten AI internal untuk admin sekolah yang mengelola aspirasi siswa di aplikasi Aspirasi Hub. 
+
+KONTEKS PENTING:
+- Tahun sekarang: 2026. Kalau user bilang "dari april ke juni", gunakan 2026-04-01 sampai 2026-06-30.
+- Nama sekolah: SMA Negeri 1 Kendal
+- Data aspirasi: nama siswa (bisa anonim), kelas, isi aspirasi, status (belum_ditanggapi/sudah_ditanggapi)
+
+Kemampuanmu lewat tools:
+- search_aspirations: cari/filter aspirasi berdasarkan kata kunci, status, rentang tanggal. SELALU gunakan limit besar (100+) untuk pencarian menyeluruh.
+- get_statistics: hitung statistik (total, sudah/belum, per kelas)
+- get_aspiration_details: ambil isi lengkap aspirasi berdasarkan ID
+- cluster_topics: kelompokkan aspirasi berdasarkan topik
+- select_aspirations: centang aspirasi di dashboard
+- mark_aspirations_status: tandai status aspirasi
+- apply_filters: terapkan filter di dashboard
+- trigger_export: download laporan (pdf/word/excel/pptx)
+- delete_aspirations: usulkan hapus (perlu konfirmasi admin)
+- tag_aspirations: beri tag/label ke aspirasi
+- remove_tags: hapus tag dari aspirasi
+- get_tags: lihat daftar tag
+
+CARA KERJA:
+1. SELALU panggil tools untuk eksekusi — jangan cuma jawab teks kalau butuh aksi nyata
+2. Untuk pencarian, gunakan limit 100+ dan variasi kata kunci
+3. Setelah tools dieksekusi, beri ringkasan singkat dengan markdown
+4. Jangan pernah mengarang data yang tidak ada
+5. Format: **bold** untuk penekanan, bullet untuk list, tabel markdown untuk data terstruktur
+6. Kamu HANYA beroperasi dalam konteks data aspirasi sekolah ini`;
 
 const TOOLS = [
   {
     type: "function",
     function: {
-      name: "mark_aspirations_status",
-      description: "Tandai beberapa aspirasi dengan status baru",
+      name: "search_aspirations",
+      description: "Cari/filter aspirasi dari SELURUH data tersimpan. Gunakan limit BESAR (100+). Tahun sekarang: 2026 — kalau user bilang 'april ke juni', gunakan 2026-04-01 sampai 2026-06-30.",
       parameters: {
         type: "object",
         properties: {
-          ids: { type: "array", items: { type: "string" }, description: "ID aspirasi" },
-          status: { type: "string", enum: ["sudah_ditanggapi", "belum_ditanggapi"] },
+          query: { type: "string", description: "Kata kunci pencarian pada isi aspirasi, nama siswa, atau kelas. Kosongkan jika hanya ingin filter status/tanggal." },
+          status: { type: "string", enum: ["sudah_ditanggapi", "belum_ditanggapi", "all"] },
+          date_from: { type: "string", description: "ISO date, awal rentang" },
+          date_to: { type: "string", description: "ISO date, akhir rentang" },
+          limit: { type: "number", description: "Maksimal hasil dikembalikan, default 40" },
         },
-        required: ["ids", "status"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "get_statistics",
+      description: "Hitung ringkasan statistik (total, sudah/belum ditanggapi, breakdown per kelas) dari SELURUH data.",
+      parameters: { type: "object", properties: {} },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "get_aspiration_details",
+      description: "Ambil isi lengkap (tidak terpotong) dan seluruh tanggapan admin untuk ID aspirasi tertentu. Maksimal 15 ID per panggilan.",
+      parameters: {
+        type: "object",
+        properties: { ids: { type: "array", items: { type: "string" }, maxItems: 15 } },
+        required: ["ids"],
       },
     },
   },
@@ -27,7 +78,7 @@ const TOOLS = [
     type: "function",
     function: {
       name: "cluster_topics",
-      description: "Laporkan hasil pengelompokan aspirasi berdasarkan topik",
+      description: "Laporkan hasil pengelompokan aspirasi berdasarkan topik. Dirender sebagai kartu-kartu topik dengan tombol aksi untuk admin.",
       parameters: {
         type: "object",
         properties: {
@@ -51,8 +102,51 @@ const TOOLS = [
   {
     type: "function",
     function: {
+      name: "select_aspirations",
+      description: "Aktifkan mode pilih (checkbox) di dashboard dan centang otomatis ID yang diberikan, supaya admin bisa meninjau sebelum melakukan aksi manual lanjutan.",
+      parameters: {
+        type: "object",
+        properties: { ids: { type: "array", items: { type: "string" } } },
+        required: ["ids"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "mark_aspirations_status",
+      description: "Tandai beberapa aspirasi dengan status baru.",
+      parameters: {
+        type: "object",
+        properties: {
+          ids: { type: "array", items: { type: "string" }, description: "ID aspirasi" },
+          status: { type: "string", enum: ["sudah_ditanggapi", "belum_ditanggapi"] },
+        },
+        required: ["ids", "status"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "apply_filters",
+      description: "Terapkan filter pada dashboard admin (status, rentang tanggal, dan/atau kata kunci pencarian).",
+      parameters: {
+        type: "object",
+        properties: {
+          status: { type: "string", enum: ["sudah_ditanggapi", "belum_ditanggapi", "all"] },
+          date_from: { type: "string", description: "ISO date" },
+          date_to: { type: "string", description: "ISO date" },
+          search_query: { type: "string" },
+        },
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
       name: "trigger_export",
-      description: "Picu download laporan untuk aspirasi tertentu",
+      description: "Picu download laporan untuk ID aspirasi tertentu dalam format pilihan.",
       parameters: {
         type: "object",
         properties: {
@@ -67,17 +161,52 @@ const TOOLS = [
   {
     type: "function",
     function: {
-      name: "apply_filters",
-      description: "Terapkan filter pada dashboard admin",
+      name: "delete_aspirations",
+      description: "Usulkan penghapusan beberapa aspirasi berdasarkan ID. SELALU memunculkan dialog konfirmasi manual ke admin sebelum benar-benar terhapus.",
+      parameters: {
+        type: "object",
+        properties: { ids: { type: "array", items: { type: "string" }, description: "ID aspirasi yang diusulkan untuk dihapus" } },
+        required: ["ids"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "tag_aspirations",
+      description: "Beri tag/label ke beberapa aspirasi. Tag persisten, bisa di-filter. Contoh: 'AC', 'Pacaran', 'Kantin', 'Prioritas'.",
       parameters: {
         type: "object",
         properties: {
-          status: { type: "string", enum: ["sudah_ditanggapi", "belum_ditanggapi", "all"] },
-          date_from: { type: "string", description: "ISO date" },
-          date_to: { type: "string", description: "ISO date" },
-          search_query: { type: "string" },
+          ids: { type: "array", items: { type: "string" } },
+          tag_name: { type: "string", description: "Nama tag" },
+          color: { type: "string", description: "Hex color opsional" },
         },
+        required: ["ids", "tag_name"],
       },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "remove_tags",
+      description: "Hapus tag dari aspirasi. Jika tag_name kosong, hapus semua tag.",
+      parameters: {
+        type: "object",
+        properties: {
+          ids: { type: "array", items: { type: "string" } },
+          tag_name: { type: "string" },
+        },
+        required: ["ids"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "get_tags",
+      description: "Ambil daftar semua tag yang ada + jumlah aspirasi per tag.",
+      parameters: { type: "object", properties: {} },
     },
   },
 ];
@@ -92,11 +221,10 @@ serve(async (req) => {
   try {
     const supabase = createClient(
       Deno.env.get("SUPABASE_URL") ?? "",
-      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "",
+      Deno.env.get("SERVICE_ROLE_KEY") ?? "",
       { global: { headers: { Authorization: req.headers.get("Authorization") || "" } } }
     );
 
-    // Verify admin role
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) {
       return new Response(JSON.stringify({ error: "Unauthorized" }), {
@@ -105,12 +233,8 @@ serve(async (req) => {
       });
     }
 
-    const { data: roles } = await supabase
-      .from("user_roles")
-      .select("role")
-      .eq("user_id", user.id);
-
-    const isAdmin = roles?.some((r) => r.role === "admin" || r.role === "superadmin");
+    const { data: roles } = await supabase.from("user_roles").select("role").eq("user_id", user.id);
+    const isAdmin = roles?.some((r) => r.role === "admin" || r.role === "developer");
     if (!isAdmin) {
       return new Response(JSON.stringify({ error: "Admin only" }), {
         status: 403,
@@ -118,30 +242,41 @@ serve(async (req) => {
       });
     }
 
-    // Get AI settings
-    const { data: aiSettings } = await supabase
-      .from("ai_settings")
-      .select("base_url, api_key, model")
-      .eq("is_active", true)
-      .order("updated_at", { ascending: false })
-      .limit(1)
-      .maybeSingle();
+    const envBaseUrl = Deno.env.get("AI_BASE_URL");
+    const envApiKey = Deno.env.get("AI_API_KEY");
+    const envModel = Deno.env.get("AI_MODEL");
+
+    let aiSettings;
+    if (envBaseUrl && envApiKey && envModel) {
+      aiSettings = { base_url: envBaseUrl, api_key: envApiKey, model: envModel };
+    } else {
+      const { data } = await supabase
+        .from("ai_settings")
+        .select("base_url, api_key, model")
+        .eq("is_active", true)
+        .order("updated_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      aiSettings = data;
+    }
 
     if (!aiSettings) {
       return new Response(
-        JSON.stringify({ error: "AI belum dikonfigurasi. Hubungi superadmin." }),
+        JSON.stringify({ error: "AI belum dikonfigurasi. Hubungi developer." }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
+    // `messages` dikirim client dalam bentuk OpenAI-shape APA ADANYA, termasuk
+    // pesan assistant berisi tool_calls dan pesan role "tool" berisi hasil
+    // eksekusinya — supaya provider LLM paham konteks percakapan multi-langkah.
     const { messages, context } = await req.json();
 
-    // Build messages for LLM
     const llmMessages = [
       { role: "system", content: SYSTEM_PROMPT },
       {
         role: "system",
-        content: `Konteks aspirasi saat ini (${context.aspirations.length} data):\n${JSON.stringify(
+        content: `Ringkasan awal aspirasi saat ini (${context.aspirations.length} data, isi dipotong 300 karakter — gunakan search_aspirations/get_aspiration_details kalau butuh lebih akurat/lengkap):\n${JSON.stringify(
           context.aspirations.map((a: any) => ({
             id: a.id,
             student_name: a.student_name,
@@ -150,42 +285,86 @@ serve(async (req) => {
             status: a.status,
             created_at: a.created_at,
           }))
-        )}\n\nFilter aktif: ${JSON.stringify(context.currentFilters || {})}`,
+        )}\n\nFilter aktif di dashboard: ${JSON.stringify(context.currentFilters || {})}`,
       },
       ...messages,
     ];
 
-    // Call LLM
-    const llmRes = await fetch(`${aiSettings.base_url}/chat/completions`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${aiSettings.api_key}`,
-      },
-      body: JSON.stringify({
-        model: aiSettings.model,
-        messages: llmMessages,
-        tools: TOOLS,
-        max_tokens: 2000,
-      }),
-    });
+    // Call AI API directly (no shared module dependency)
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 60000); // 60 detik timeout
+
+    let llmRes;
+    try {
+      llmRes = await fetch(`${aiSettings.base_url}/chat/completions`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${aiSettings.api_key}`,
+        },
+        body: JSON.stringify({
+          model: aiSettings.model,
+          messages: llmMessages,
+          tools: TOOLS,
+          tool_choice: "auto",
+          max_tokens: 16000,
+        }),
+        signal: controller.signal,
+      });
+    } catch (e: any) {
+      clearTimeout(timeout);
+      if (e.name === "AbortError") {
+        return new Response(
+          JSON.stringify({ error: "AI timeout (>60 detik). Coba lagi." }),
+          { status: 504, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+      return new Response(
+        JSON.stringify({ error: `Network error: ${e.message}` }),
+        { status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+    clearTimeout(timeout);
 
     if (!llmRes.ok) {
       const errText = await llmRes.text();
+      console.error("AI API error:", llmRes.status, errText);
       return new Response(
-        JSON.stringify({ error: `AI error: ${llmRes.status} ${errText.substring(0, 200)}` }),
-        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        JSON.stringify({ error: `AI error: ${llmRes.status} ${errText.substring(0, 300)}` }),
+        { status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
     const llmData = await llmRes.json();
     const assistantMessage = llmData.choices?.[0]?.message;
 
+    // Handle response — bisa berisi content ATAU tool_calls ATAU keduanya
+    const response: any = {};
+    
+    // JANGAN return reasoning sebagai message (itu internal thinking)
+    // Hanya return content yang layak ditampilkan ke user
+    if (assistantMessage?.content) {
+      response.message = assistantMessage.content;
+    } else if (assistantMessage?.tool_calls?.length > 0) {
+      // Tool calls tanpa content — ini NORMAL, kosongkan message
+      // Frontend akan execute tool dan continue conversation
+      response.message = "";
+    } else {
+      // Fallback: tidak ada content dan tidak ada tool_calls sama sekali.
+      // Model reasoning (deepseek-v4-flash dkk) kadang menaruh jawaban akhirnya
+      // di field reasoning/reasoning_content, bukan content, saat thinking mode
+      // aktif. Tanpa fallback ini, chat berhenti kosong tanpa pesan apapun.
+      response.message =
+        assistantMessage?.reasoning || assistantMessage?.reasoning_content || "";
+    }
+    
+    // Selalu return tool_calls jika ada
+    if (assistantMessage?.tool_calls?.length > 0) {
+      response.tool_calls = assistantMessage.tool_calls;
+    }
+
     return new Response(
-      JSON.stringify({
-        message: assistantMessage?.content || "",
-        tool_calls: assistantMessage?.tool_calls || null,
-      }),
+      JSON.stringify(response),
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   } catch (error: any) {

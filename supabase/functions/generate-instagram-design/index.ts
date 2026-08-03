@@ -170,8 +170,9 @@ serve(async (req) => {
     });
   } catch (error: any) {
     console.error("generate-instagram-design error:", error);
+    // Don't leak internal error details (JWT verification, etc.)
     return new Response(
-      JSON.stringify({ error: error?.message ?? "Unknown error" }),
+      JSON.stringify({ error: "Gagal membuat desain. Silakan coba lagi." }),
       { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   }

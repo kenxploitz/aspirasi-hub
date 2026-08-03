@@ -16,7 +16,7 @@ serve(async (req) => {
   try {
     const supabase = createClient(
       Deno.env.get("SUPABASE_URL") ?? "",
-      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "",
+      Deno.env.get("SERVICE_ROLE_KEY") ?? "",
       { global: { headers: { Authorization: req.headers.get("Authorization") || "" } } }
     );
 
@@ -33,11 +33,11 @@ serve(async (req) => {
       .from("user_roles")
       .select("role")
       .eq("user_id", user.id)
-      .eq("role", "superadmin")
+      .eq("role", "developer")
       .maybeSingle();
 
     if (!roleData) {
-      return new Response(JSON.stringify({ error: "Superadmin only" }), {
+      return new Response(JSON.stringify({ error: "Developer only" }), {
         status: 403,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });

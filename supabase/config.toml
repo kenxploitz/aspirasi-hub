@@ -1,4 +1,4 @@
-project_id = "cgdqefwtyjcypklzhcxz"
+project_id = "fsspteutxmjrjoyplrll"
 
 [api]
 enabled = true
@@ -12,29 +12,11 @@ port = 54322
 shadow_port = 54320
 major_version = 15
 
-[db.pooler]
-enabled = false
-port = 54329
-pool_mode = "transaction"
-default_pool_size = 20
-max_client_conn = 100
-
 [realtime]
 enabled = true
-ip_version = "ipv6"
-port = 54323
-authorization.max_token_valid_duration = 31557600000
 
 [studio]
 enabled = true
-port = 54323
-api_url = "http://127.0.0.1"
-
-[inbucket]
-enabled = true
-port = 54324
-smtp_port = 54325
-pop3_port = 54326
 
 [storage]
 enabled = true
@@ -43,12 +25,7 @@ file_size_limit = "50MiB"
 [auth]
 enabled = true
 site_url = "https://www.faspira.my.id"
-additional_redirect_urls = [
-  "https://www.faspira.my.id",
-  "https://faspira.my.id",
-  "http://localhost:5173",
-  "http://localhost:8080"
-]
+additional_redirect_urls = ["https://www.faspira.my.id", "https://faspira.my.id", "http://localhost:5173"]
 jwt_expiry = 3600
 enable_signup = true
 
@@ -61,18 +38,6 @@ enable_confirmations = false
 enabled = true
 client_id = "env(GOOGLE_CLIENT_ID)"
 secret = "env(GOOGLE_CLIENT_SECRET)"
-redirect_uri = "https://fsspteutxmjrjoyplrll.supabase.co/auth/v1/callback"
-
-[edge_runtime]
-enabled = true
-port = 54321
-inspector_port = 8083
-
-[functions.download-aspirations]
-verify_jwt = true
-
-[functions.generate-instagram-design]
-verify_jwt = true
 
 [functions.submit-aspiration]
 verify_jwt = false
@@ -85,3 +50,12 @@ verify_jwt = true
 
 [functions.ai-client-chat]
 verify_jwt = false
+
+[functions.download-aspirations]
+verify_jwt = true
+
+[functions.generate-instagram-design]
+verify_jwt = true
+
+[functions.backup-data]
+verify_jwt = true

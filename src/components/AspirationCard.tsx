@@ -1,16 +1,14 @@
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { sanitizeText } from "@/lib/security";
 import {
-  Trash2, MessageCircle, Send, Download, Calendar, User, GraduationCap,
-  Loader2, ChevronDown, ChevronUp,
+  Trash2, Download, Calendar, User, GraduationCap, Tag,
+  Loader2, CheckCircle2, X,
 } from "lucide-react";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
@@ -47,29 +45,88 @@ function fmtDate(d: string) {
 
 const AspirationCard = ({ aspiration, onUpdate, isSelected, onToggleSelect, showCheckbox }: AspirationCardProps) => {
   const { toast } = useToast();
-  const [isCommenting, setIsCommenting] = useState(false);
-  const [comment, setComment] = useState("");
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isToggling, setIsToggling] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [isDownloading, setIsDownloading] = useState(false);
-  const [showComments, setShowComments] = useState(false);
+  const [tags, setTags] = useState<{ id: string; tag_name: string; color: string }[]>([]);
+  const [showAddTag, setShowAddTag] = useState(false);
+  const [newTagName, setNewTagName] = useState("");
+  const [isAddingTag, setIsAddingTag] = useState(false);
+  const tagInputRef = useRef<HTMLInputElement>(null);
 
   const st = getStatus(aspiration.status);
+  const isSudah = aspiration.status === "sudah_ditanggapi";
+
+  // Fetch tags
+  useEffect(() => {
+    const fetchTags = async () => {
+      const { data } = await supabase
+        .from("aspiration_tags")
+        .select("id, tag_name, color")
+        .eq("aspiration_id", aspiration.id);
+      setTags(data || []);
+    };
+    fetchTags();
+  }, [aspiration.id]);
+
+  const handleRemoveTag = async (tagId: string) => {
+    try {
+      const { error } = await supabase.from("aspiration_tags").delete().eq("id", tagId);
+      if (error) throw error;
+      setTags((prev) => prev.filter((t) => t.id !== tagId));
+      toast({ title: "Tag dihapus" });
+    } catch {
+      toast({ title: "Gagal hapus tag", variant: "destructive" });
+    }
+  };
+
+  const handleAddTag = async () => {
+    if (!newTagName.trim()) return;
+    try {
+      setIsAddingTag(true);
+      const { data, error } = await supabase.from("aspiration_tags").insert({
+        aspiration_id: aspiration.id,
+        tag_name: newTagName.trim(),
+      }).select("id, tag_name, color").single();
+      if (error) {
+        if (error.code === "23505") {
+          toast({ title: "Tag sudah ada" });
+        } else {
+          throw error;
+        }
+      } else if (data) {
+        setTags((prev) => [...prev, data]);
+        toast({ title: `Tag "${newTagName.trim()}" ditambahkan` });
+      }
+      setNewTagName("");
+      setShowAddTag(false);
+    } catch {
+      toast({ title: "Gagal tambah tag", variant: "destructive" });
+    } finally {
+      setIsAddingTag(false);
+    }
+  };
+
+  // Focus input when shown
+  useEffect(() => {
+    if (showAddTag && tagInputRef.current) {
+      tagInputRef.current.focus();
+    }
+  }, [showAddTag]);
+
+  const handleToggleStatus = async () => {
+    try {
+      setIsToggling(true);
+      const newStatus = isSudah ? "belum_ditanggapi" : "sudah_ditanggapi";
+      const { error } = await supabase.from("aspirations").update({ status: newStatus }).eq("id", aspiration.id);
+      if (error) throw error;
+      toast({ title: isSudah ? "Dibatalkan" : "Ditanggapi" });
+      onUpdate();
+    } catch { toast({ title: "Gagal", variant: "destructive" }); } finally { setIsToggling(false); }
+  };
 
   const handleDelete = async () => {
     try { setIsDeleting(true); const { error } = await supabase.from("aspirations").delete().eq("id", aspiration.id); if (error) throw error; toast({ title: "Dihapus" }); onUpdate(); } catch { toast({ title: "Gagal", variant: "destructive" }); } finally { setIsDeleting(false); }
-  };
-
-  const handleAddComment = async () => {
-    if (!comment.trim()) return;
-    try {
-      setIsSubmitting(true);
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error("Not authenticated");
-      const { error } = await supabase.from("comments").insert({ aspiration_id: aspiration.id, admin_id: user.id, comment_text: comment.trim() });
-      if (error) throw error;
-      toast({ title: "Tanggapan ditambahkan" }); setComment(""); setIsCommenting(false); onUpdate();
-    } catch { toast({ title: "Gagal", variant: "destructive" }); } finally { setIsSubmitting(false); }
   };
 
   const handleDownloadDesign = async () => {
@@ -103,6 +160,49 @@ const AspirationCard = ({ aspiration, onUpdate, isSelected, onToggleSelect, show
               {aspiration.student_class && (
                 <Badge variant="secondary" className="text-[10px] px-1.5 py-0 h-4 font-normal">{sanitizeText(aspiration.student_class)}</Badge>
               )}
+              {/* Tag badges */}
+              {tags.map((tag) => (
+                <Badge key={tag.id} variant="outline"
+                  className="text-[10px] px-1.5 py-0 h-4 font-normal bg-accent/10 text-accent border-accent/20 gap-0.5 group/tag cursor-default">
+                  <Tag className="h-2.5 w-2.5 mr-0.5" />
+                  {tag.tag_name}
+                  <button onClick={() => handleRemoveTag(tag.id)}
+                    className="ml-0.5 opacity-0 group-hover/tag:opacity-100 hover:text-destructive transition-opacity">
+                    <X className="h-2.5 w-2.5" />
+                  </button>
+                </Badge>
+              ))}
+              {/* Add tag button */}
+              {showAddTag ? (
+                <div className="flex items-center gap-1">
+                  <input
+                    ref={tagInputRef}
+                    type="text"
+                    value={newTagName}
+                    onChange={(e) => setNewTagName(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") handleAddTag();
+                      if (e.key === "Escape") { setShowAddTag(false); setNewTagName(""); }
+                    }}
+                    placeholder="Nama tag..."
+                    className="h-5 w-20 text-[10px] px-1.5 border border-border rounded bg-background focus:outline-none focus:border-accent"
+                    disabled={isAddingTag}
+                  />
+                  <button onClick={handleAddTag} disabled={isAddingTag || !newTagName.trim()}
+                    className="h-5 w-5 flex items-center justify-center rounded bg-accent text-white hover:bg-accent/80 disabled:opacity-50">
+                    {isAddingTag ? <Loader2 className="h-2.5 w-2.5 animate-spin" /> : <CheckCircle2 className="h-2.5 w-2.5" />}
+                  </button>
+                  <button onClick={() => { setShowAddTag(false); setNewTagName(""); }}
+                    className="h-5 w-5 flex items-center justify-center rounded hover:bg-muted">
+                    <X className="h-2.5 w-2.5" />
+                  </button>
+                </div>
+              ) : (
+                <button onClick={() => setShowAddTag(true)}
+                  className="h-4 w-4 flex items-center justify-center rounded-full border border-dashed border-muted-foreground/30 hover:border-accent hover:bg-accent/10 transition-colors">
+                  <span className="text-[10px] text-muted-foreground hover:text-accent">+</span>
+                </button>
+              )}
               <span className="text-[10px] text-muted-foreground ml-auto shrink-0 flex items-center gap-1">
                 <Calendar className="h-2.5 w-2.5" />{fmtDate(aspiration.created_at)}
               </span>
@@ -113,45 +213,12 @@ const AspirationCard = ({ aspiration, onUpdate, isSelected, onToggleSelect, show
           </div>
         </div>
 
-        {/* ── Comments ── */}
-        {aspiration.comments.length > 0 && (
-          <div className="ml-6 space-y-1.5">
-            <button onClick={() => setShowComments(!showComments)} className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground hover:text-foreground transition-colors">
-              <MessageCircle className="h-3 w-3" />Tanggapan ({aspiration.comments.length}){showComments ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
-            </button>
-            {showComments && (
-              <div className="space-y-1.5 pl-3 border-l-2 border-muted">
-                {aspiration.comments.map((c) => (
-                  <div key={c.id} className="flex gap-2 p-2 rounded bg-muted/40">
-                    <Avatar className="h-5 w-5 shrink-0"><AvatarFallback className="bg-muted text-[8px] font-medium text-muted-foreground">A</AvatarFallback></Avatar>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-xs text-foreground">{sanitizeText(c.comment_text)}</p>
-                      <p className="text-[10px] text-muted-foreground mt-0.5">{relativeTime(c.created_at)}</p>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* ── Comment input ── */}
-        {isCommenting && (
-          <div className="ml-6 space-y-2 p-3 rounded bg-muted/30 border border-border">
-            <Textarea placeholder="Tulis tanggapan..." value={comment} onChange={(e) => setComment(e.target.value)} rows={2} className="border-border focus:border-primary resize-none text-sm" />
-            <div className="flex gap-2">
-              <Button size="sm" className="h-7 text-xs bg-primary text-primary-foreground hover:bg-primary/90" onClick={handleAddComment} disabled={isSubmitting || !comment.trim()}>
-                {isSubmitting ? <Loader2 className="mr-1 h-3 w-3 animate-spin" /> : <Send className="mr-1 h-3 w-3" />}Kirim
-              </Button>
-              <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => { setIsCommenting(false); setComment(""); }}>Batal</Button>
-            </div>
-          </div>
-        )}
-
         {/* ── Actions ── */}
         <div className="flex items-center gap-1.5 ml-6">
-          <Button size="sm" variant="ghost" className="h-7 text-xs px-2 text-muted-foreground" onClick={() => setIsCommenting(!isCommenting)}>
-            <MessageCircle className="mr-1 h-3 w-3" />Tanggapi
+          <Button size="sm" variant="ghost" className={`h-7 text-xs px-2 ${isSudah ? "text-green-600 hover:text-green-700" : "text-muted-foreground hover:text-green-600"}`}
+            onClick={handleToggleStatus} disabled={isToggling}>
+            {isToggling ? <Loader2 className="mr-1 h-3 w-3 animate-spin" /> : <CheckCircle2 className="mr-1 h-3 w-3" />}
+            {isSudah ? "Sudah Ditanggapi" : "Tanggapi"}
           </Button>
           <Button size="sm" variant="ghost" className="h-7 text-xs px-2 text-muted-foreground" onClick={handleDownloadDesign} disabled={isDownloading}>
             {isDownloading ? <Loader2 className="mr-1 h-3 w-3 animate-spin" /> : <Download className="mr-1 h-3 w-3" />}Desain

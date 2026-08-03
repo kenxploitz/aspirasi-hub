@@ -88,22 +88,46 @@ serve(async (req) => {
       );
     }
 
-    // Rate limiting
-    const fingerprint = getClientFingerprint(req);
-    const rateCheck = checkRateLimit(fingerprint);
+    // Use service role key for server-side insert (bypasses RLS).
+    // HARUS dibuat SEBELUM dipakai di query rate-limit di bawah — sebelumnya
+    // supabaseAdmin dipakai duluan di sini padahal baru dideklarasikan jauh di
+    // bawah (setelah honeypot/validasi), menyebabkan ReferenceError -> HTTP 500
+    // pada SETIAP request, sebelum sempat sampai ke proses insert.
+    const supabaseAdmin = createClient(
+      Deno.env.get("SUPABASE_URL") ?? "",
+      Deno.env.get("SERVICE_ROLE_KEY") ?? ""
+    );
 
-    if (!rateCheck.allowed) {
+    // Fingerprint client untuk audit log (IP + User-Agent). Sebelumnya
+    // variabel `fingerprint` dipakai di bawah tanpa pernah didefinisikan —
+    // ReferenceError kedua yang juga menyebabkan 500.
+    const fingerprint = getClientFingerprint(req);
+
+    // Rate limiting — database-based (stateless edge function compatible)
+    const tenMinutesAgo = new Date(Date.now() - 10 * 60 * 1000).toISOString();
+
+    // Use audit_log to track IP-based rate limiting
+    const { data: recentLogs } = await supabaseAdmin
+      .from("audit_log")
+      .select("id", { count: "exact" })
+      .eq("action", "INSERT")
+      .eq("table_name", "aspirations")
+      .gte("created_at", tenMinutesAgo)
+      .limit(20);
+
+    const recentCount = recentLogs?.length || 0;
+    if (recentCount >= 10) {
       return new Response(
         JSON.stringify({
           error: "Terlalu banyak percobaan. Silakan tunggu beberapa menit lagi.",
-          retryAfter: rateCheck.retryAfter,
+          retryAfter: 600,
         }),
         {
           status: 429,
           headers: {
             ...corsHeaders,
             "Content-Type": "application/json",
-            "Retry-After": String(rateCheck.retryAfter),
+            "Retry-After": "600",
           },
         }
       );
@@ -165,12 +189,6 @@ serve(async (req) => {
         { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
-
-    // Use service role key for server-side insert (bypasses RLS)
-    const supabaseAdmin = createClient(
-      Deno.env.get("SUPABASE_URL") ?? "",
-      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? ""
-    );
 
     // Check for duplicate content from same name in last hour
     const { data: duplicates } = await supabaseAdmin
