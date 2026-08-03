@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import {
   Bot, User, Send, Loader2, X, Sparkles, Download, CheckCircle2, Filter, Trash2, Search, BarChart3, ListChecks, Tag,
 } from "lucide-react";
@@ -381,7 +382,19 @@ const AiAdminChatPanel = ({
                 {msg.content && (
                   <div className="rounded-xl px-3 py-2 text-sm leading-relaxed bg-muted text-foreground border border-border">
                     <div className="prose prose-sm dark:prose-invert max-w-none prose-p:my-1 prose-ul:my-1 prose-li:my-0 prose-strong:text-foreground">
-                      <ReactMarkdown>{msg.content}</ReactMarkdown>
+                      <ReactMarkdown 
+                        remarkPlugins={[remarkGfm]}
+                        components={{
+                          table: ({children, ...props}) => <table className="ai-markdown-table" {...props}>{children}</table>,
+                          thead: ({children, ...props}) => <thead {...props}>{children}</thead>,
+                          tbody: ({children, ...props}) => <tbody {...props}>{children}</tbody>,
+                          tr: ({children, ...props}) => <tr {...props}>{children}</tr>,
+                          th: ({children, ...props}) => <th {...props}>{children}</th>,
+                          td: ({children, ...props}) => <td {...props}>{children}</td>,
+                        }}
+                      >
+                        {msg.content}
+                      </ReactMarkdown>
                     </div>
                   </div>
                 )}
