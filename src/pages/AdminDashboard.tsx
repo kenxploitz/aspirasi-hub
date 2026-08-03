@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -9,7 +9,7 @@ import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { useToast } from "@/hooks/use-toast";
 import {
   LogOut, Search, MessageSquare, FileText, BarChart3, Loader2, Trash,
-  Download, Calendar, CheckSquare, X, Filter, ChevronDown, ChevronLeft, ChevronRight, Users, Settings, Sparkles, Database,
+  Download, Calendar, CheckSquare, X, Filter, ChevronDown, ChevronLeft, ChevronRight, Users, Settings, Sparkles, Database, Upload,
 } from "lucide-react";
 import AspirationCard from "@/components/AspirationCard";
 import AspirationStats from "@/components/AspirationStats";
@@ -64,6 +64,8 @@ const AdminDashboard = () => {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [showAiChat, setShowAiChat] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
+  const [isImporting, setIsImporting] = useState(false);
+  const importInputRef = useRef<HTMLInputElement>(null);
   const PAGE_SIZE = 25;
 
   useEffect(() => {
@@ -231,7 +233,6 @@ const AdminDashboard = () => {
       });
       if (error) throw error;
 
-      // Create blob and download
       const blob = new Blob([typeof data === "string" ? data : JSON.stringify(data)], {
         type: format === "json" ? "application/json" : "application/sql",
       });
@@ -244,6 +245,33 @@ const AdminDashboard = () => {
       toast({ title: `Backup ${format.toUpperCase()} berhasil diunduh` });
     } catch {
       toast({ title: "Gagal membuat backup", variant: "destructive" });
+    }
+  };
+
+  const handleImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      setIsImporting(true);
+      const text = await file.text();
+      if (file.name.endsWith(".json")) {
+        const data = JSON.parse(text);
+        if (data.aspirations && Array.isArray(data.aspirations)) {
+          const { error } = await supabase.from("aspirations").upsert(data.aspirations, { onConflict: "id", ignoreDuplicates: true });
+          if (error) throw error;
+          toast({ title: `${data.aspirations.length} aspirasi diimport` });
+          fetchAspirations();
+        } else {
+          toast({ title: "Format JSON tidak valid", variant: "destructive" });
+        }
+      } else {
+        toast({ title: "Gunakan file .json untuk import", variant: "destructive" });
+      }
+    } catch (e: any) {
+      toast({ title: "Gagal import", description: e.message, variant: "destructive" });
+    } finally {
+      setIsImporting(false);
+      if (importInputRef.current) importInputRef.current.value = "";
     }
   };
 
@@ -304,7 +332,7 @@ const AdminDashboard = () => {
                 <Button variant="outline" onClick={() => navigate("/admin/settings/ai")}
                   className="group border-2 border-accent/50 bg-card/50 backdrop-blur-sm text-accent hover:bg-accent hover:text-white hover:border-accent transition-all duration-300 hover:scale-105 hover:shadow-xl">
                   <Settings className="mr-2 h-5 w-5 group-hover:rotate-90 transition-transform" />
-                  Settings
+                  Pengaturan
                 </Button>
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
@@ -316,13 +344,17 @@ const AdminDashboard = () => {
                   </DropdownMenuTrigger>
                   <DropdownMenuContent>
                     <DropdownMenuItem onClick={() => handleBackup("json")}>
-                      <FileText className="mr-2 h-4 w-4" />Backup JSON
+                      <FileText className="mr-2 h-4 w-4" />Export JSON
                     </DropdownMenuItem>
                     <DropdownMenuItem onClick={() => handleBackup("sql")}>
-                      <FileText className="mr-2 h-4 w-4" />Backup SQL
+                      <FileText className="mr-2 h-4 w-4" />Export SQL
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => importInputRef.current?.click()}>
+                      <Upload className="mr-2 h-4 w-4" />Import JSON
                     </DropdownMenuItem>
                   </DropdownMenuContent>
                 </DropdownMenu>
+                <input ref={importInputRef} type="file" accept=".json" onChange={handleImport} className="hidden" />
               </>
             )}
             <Button variant="outline" onClick={() => navigate("/admin/statistics")}
