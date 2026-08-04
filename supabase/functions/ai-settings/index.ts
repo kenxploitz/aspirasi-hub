@@ -100,6 +100,28 @@ serve(async (req) => {
 
       if (error) throw error;
 
+      // Also update Supabase secrets so edge functions use latest config
+      try {
+        const managementToken = Deno.env.get("MANAGEMENT_TOKEN");
+        if (managementToken) {
+          const projectRef = Deno.env.get("PROJECT_REF") || "fsspteutxmjrjoyplrll";
+          await fetch(`https://api.supabase.com/v1/projects/${projectRef}/secrets`, {
+            method: "POST",
+            headers: {
+              "Authorization": `Bearer ${managementToken}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify([
+              { name: "AI_BASE_URL", value: base_url.replace(/\/+$/, "") },
+              { name: "AI_API_KEY", value: api_key },
+              { name: "AI_MODEL", value: model },
+            ]),
+          });
+        }
+      } catch (e) {
+        console.log("Could not update secrets (non-critical):", e);
+      }
+
       return new Response(
         JSON.stringify({ success: true, settings: data }),
         { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
