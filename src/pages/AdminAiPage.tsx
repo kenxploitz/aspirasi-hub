@@ -13,6 +13,14 @@ import {
   Trash2, Search, BarChart3, ListChecks, Tag, ArrowLeft, RotateCcw, Settings,
 } from "lucide-react";
 import { ThemeToggle } from "@/components/ThemeToggle";
+import { sanitizeForPDF } from "@/lib/security";
+import { exportToWord } from "@/lib/export/exportToWord";
+import { exportToExcel } from "@/lib/export/exportToExcel";
+import { exportToPptx } from "@/lib/export/exportToPptx";
+import jsPDF from "jspdf";
+import autoTable from "jspdf-autotable";
+import { format } from "date-fns";
+import { id as idLocale } from "date-fns/locale";
 
 interface ChatMsg {
   role: "user" | "assistant" | "tool";
@@ -162,15 +170,53 @@ const AdminAiPage = () => {
       }
       case "mark_aspirations_status": {
         const ids: string[] = args.ids || [];
-        (async () => { for (const id of ids) await supabase.from("aspirations").update({ status: args.status }).eq("id", id); fetchAspirations(); })();
-        return { forModel: { updated: ids.length }, friendly: `${ids.length} aspirasi ditandai ${statusText(args.status)}` };
+        const newStatus = args.status || "sudah_ditanggapi";
+        (async () => {
+          for (const id of ids) {
+            await supabase.from("aspirations").update({ status: newStatus }).eq("id", id);
+          }
+          fetchAspirations();
+        })();
+        return { forModel: { updated: ids.length, status: newStatus }, friendly: `${ids.length} aspirasi ditandai ${statusText(newStatus)}` };
       }
       case "apply_filters": {
         return { forModel: { applied: true }, friendly: "Filter diterapkan" };
       }
       case "trigger_export": {
         const ids: string[] = args.aspiration_ids || [];
-        return { forModel: { exported: ids.length, format: args.format }, friendly: `Export ${String(args.format).toUpperCase()} untuk ${ids.length} aspirasi` };
+        const fmt = (args.format || "pdf").toLowerCase();
+        const exportData = ids.length > 0
+          ? aspirations.filter((a) => ids.includes(a.id))
+          : aspirations;
+
+        if (exportData.length === 0) {
+          return { forModel: { error: "Tidak ada data untuk diekspor" }, friendly: "Tidak ada data" };
+        }
+
+        // Fire and forget — download will start in browser
+        (async () => {
+          try {
+            if (fmt === "pdf") {
+              const doc = new jsPDF("l", "mm", "a4");
+              doc.setFontSize(20); doc.setFont("helvetica", "bold"); doc.setTextColor(30, 58, 95);
+              doc.text("REKAP ASPIRASI SISWA", doc.internal.pageSize.getWidth() / 2, 18, { align: "center" });
+              doc.setFontSize(9); doc.setFont("helvetica", "normal"); doc.setTextColor(107, 114, 128);
+              doc.text(`${format(new Date(), "d MMMM yyyy, HH:mm", { locale: idLocale })} — ${exportData.length} aspirasi`, doc.internal.pageSize.getWidth() / 2, 25, { align: "center" });
+              const tableData = exportData.map((asp, i) => [(i + 1).toString(), sanitizeForPDF(asp.student_name), sanitizeForPDF(asp.student_class || "-"), sanitizeForPDF(asp.content), asp.status === "sudah_ditanggapi" ? "Sudah" : "Belum", new Date(asp.created_at).toLocaleDateString("id-ID")]);
+              const colW = [12, 30, 22, 100, 25, 25]; const tw = colW.reduce((a, b) => a + b, 0); const ml = (doc.internal.pageSize.getWidth() - tw) / 2;
+              autoTable(doc, { startY: 32, head: [["No", "Nama", "Kelas", "Isi Aspirasi", "Status", "Tanggal"]], body: tableData, styles: { fontSize: 8, cellPadding: 3, overflow: "linebreak" }, headStyles: { fillColor: [30, 58, 95], textColor: [255, 255, 255], fontStyle: "bold", halign: "center" }, alternateRowStyles: { fillColor: [248, 250, 252] }, margin: { left: ml, right: ml } });
+              doc.save(`Rekap-Aspirasi_${new Date().toISOString().split("T")[0]}.pdf`);
+            } else if (fmt === "word") {
+              await exportToWord(exportData, { schoolName: "SMA Negeri 1 Kendal" });
+            } else if (fmt === "excel") {
+              await exportToExcel(exportData, { schoolName: "SMA Negeri 1 Kendal" });
+            } else if (fmt === "pptx") {
+              await exportToPptx(exportData, { schoolName: "SMA Negeri 1 Kendal" });
+            }
+          } catch (e) { console.error("Export error:", e); }
+        })();
+
+        return { forModel: { exported: exportData.length, format: fmt }, friendly: `Export ${fmt.toUpperCase()} untuk ${exportData.length} aspirasi dimulai` };
       }
       case "delete_aspirations": {
         const ids: string[] = args.ids || [];

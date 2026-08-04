@@ -39,6 +39,7 @@ const SettingsPage = () => {
 
   // Site Settings
   const [siteSettings, setSiteSettings] = useState({
+    id: null as string | null,
     maintenance_mode: false,
     maintenance_message: "Sistem sedang dalam pemeliharaan. Silakan coba lagi nanti.",
     site_name: "FASPIRA - Forum Aspirasi Siswa",
@@ -93,6 +94,7 @@ const SettingsPage = () => {
 
       if (settingsData) {
         setSiteSettings({
+          id: settingsData.id,
           maintenance_mode: settingsData.maintenance_mode || false,
           maintenance_message: settingsData.maintenance_message || "Sistem sedang dalam pemeliharaan. Silakan coba lagi nanti.",
           site_name: settingsData.site_name || "FASPIRA - Forum Aspirasi Siswa",
@@ -160,10 +162,24 @@ const SettingsPage = () => {
   const handleSaveSiteSettings = async () => {
     try {
       setIsSaving(true);
-      const { error } = await supabase
-        .from("site_settings")
-        .upsert(siteSettings, { onConflict: "id" });
-      if (error) throw error;
+      const { id, ...settingsData } = siteSettings;
+      if (id) {
+        // Update existing row
+        const { error } = await supabase
+          .from("site_settings")
+          .update(settingsData)
+          .eq("id", id);
+        if (error) throw error;
+      } else {
+        // Insert new row
+        const { data, error } = await supabase
+          .from("site_settings")
+          .insert(settingsData)
+          .select("id")
+          .single();
+        if (error) throw error;
+        if (data) setSiteSettings((s) => ({ ...s, id: data.id }));
+      }
       toast({ title: "Pengaturan situs disimpan" });
     } catch (e: any) {
       toast({ title: "Gagal menyimpan", description: e.message, variant: "destructive" });
@@ -201,12 +217,21 @@ const SettingsPage = () => {
 
       // Save to database
       const updateField = type === "school" ? "school_logo_url" : "org_logo_url";
-      const { error: dbError } = await supabase
-        .from("site_settings")
-        .update({ [updateField]: logoUrl })
-        .neq("id", "00000000-0000-0000-0000-000000000000");
-
-      if (dbError) throw dbError;
+      if (siteSettings.id) {
+        const { error: dbError } = await supabase
+          .from("site_settings")
+          .update({ [updateField]: logoUrl })
+          .eq("id", siteSettings.id);
+        if (dbError) throw dbError;
+      } else {
+        const { data: newData, error: dbError } = await supabase
+          .from("site_settings")
+          .insert({ [updateField]: logoUrl })
+          .select("id")
+          .single();
+        if (dbError) throw dbError;
+        if (newData) setSiteSettings((s) => ({ ...s, id: newData.id }));
+      }
 
       toast({ title: `Logo ${type === "school" ? "sekolah" : "organisasi"} berhasil diupload` });
     } catch (e: any) {
