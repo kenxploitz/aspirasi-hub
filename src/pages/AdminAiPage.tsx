@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo, useRef } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -9,8 +9,9 @@ import { useToast } from "@/hooks/use-toast";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import {
-  Bot, User, Send, Loader2, X, Sparkles, Download, CheckCircle2, Filter,
-  Trash2, Search, BarChart3, ListChecks, Tag, ArrowLeft, RotateCcw, Settings,
+  Bot, User, Send, Loader2, Sparkles, Download, CheckCircle2, Filter,
+  Trash2, Search, BarChart3, ListChecks, Tag, ArrowLeft, RotateCcw,
+  FileText, FileSpreadsheet, Presentation,
 } from "lucide-react";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { sanitizeForPDF } from "@/lib/security";
@@ -46,18 +47,18 @@ interface Aspiration {
   comments: any[];
 }
 
-const STORAGE_KEY = "faspira-ai-chat-v2";
+const STORAGE_KEY = "faspira-ai-chat-v3";
 const MAX_AUTO_STEPS = 999;
-const WELCOME = `Halo! Saya Asisten AI admin FASPIRA. Saya bisa:
+const WELCOME = `Saya Asisten AI admin FASPIRA. Kemampuan saya:
 
-🔍 **Mencari** aspirasi berdasarkan kata kunci, kelas, atau tanggal
-📊 **Menganalisis** statistik dan pola aspirasi
-🏷️ **Mengelompokkan** aspirasi berdasarkan topik
-✅ **Menandai** status aspirasi
-📥 **Mengekspor** laporan (PDF/Word/Excel/PPTX)
-🗑️ **Mengusulkan** penghapusan
+- Mencari aspirasi berdasarkan kata kunci, kelas, atau tanggal
+- Menganalisis statistik dan pola aspirasi
+- Mengelompokkan aspirasi berdasarkan topik
+- Menandai status aspirasi
+- Mengekspor laporan (PDF/Word/Excel/PPTX)
+- Mengusulkan penghapusan
 
-Coba ketik: *"Cari aspirasi soal kantin, kelompokkan berdasarkan topik, lalu tandai yang sudah ditanggapi"*`;
+Coba ketik: "Cari aspirasi soal kantin, kelompokkan berdasarkan topik"`;
 
 const loadMessages = (): ChatMsg[] => {
   try {
@@ -81,6 +82,7 @@ const AdminAiPage = () => {
   const [stepLabel, setStepLabel] = useState("Berpikir...");
   const [topicGroups, setTopicGroups] = useState<TopicGroup[]>([]);
   const [dataLoading, setDataLoading] = useState(true);
+  const [lastExportIds, setLastExportIds] = useState<string[]>([]);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -116,11 +118,49 @@ const AdminAiPage = () => {
     const fresh: ChatMsg[] = [{ role: "assistant", content: WELCOME }];
     setMessages(fresh);
     setTopicGroups([]);
+    setLastExportIds([]);
     localStorage.removeItem(STORAGE_KEY);
     toast({ title: "Chat direset" });
   };
 
-  const executeTool = (tc: any): { forModel: any; friendly: string } => {
+  // Export functions
+  const handleExport = async (fmt: string, ids?: string[]) => {
+    const data = ids && ids.length > 0
+      ? aspirations.filter((a) => ids.includes(a.id))
+      : aspirations;
+
+    if (data.length === 0) {
+      toast({ title: "Tidak ada data untuk diekspor", variant: "destructive" });
+      return;
+    }
+
+    try {
+      toast({ title: `Membuat ${fmt.toUpperCase()}...` });
+      if (fmt === "pdf") {
+        const doc = new jsPDF("l", "mm", "a4");
+        doc.setFontSize(20); doc.setFont("helvetica", "bold"); doc.setTextColor(30, 58, 95);
+        doc.text("REKAP ASPIRASI SISWA", doc.internal.pageSize.getWidth() / 2, 18, { align: "center" });
+        doc.setFontSize(9); doc.setFont("helvetica", "normal"); doc.setTextColor(107, 114, 128);
+        doc.text(`${format(new Date(), "d MMMM yyyy, HH:mm", { locale: idLocale })} — ${data.length} aspirasi`, doc.internal.pageSize.getWidth() / 2, 25, { align: "center" });
+        const tableData = data.map((asp, i) => [(i + 1).toString(), sanitizeForPDF(asp.student_name), sanitizeForPDF(asp.student_class || "-"), sanitizeForPDF(asp.content), asp.status === "sudah_ditanggapi" ? "Sudah" : "Belum", new Date(asp.created_at).toLocaleDateString("id-ID")]);
+        const colW = [12, 30, 22, 100, 25, 25]; const tw = colW.reduce((a, b) => a + b, 0); const ml = (doc.internal.pageSize.getWidth() - tw) / 2;
+        autoTable(doc, { startY: 32, head: [["No", "Nama", "Kelas", "Isi Aspirasi", "Status", "Tanggal"]], body: tableData, styles: { fontSize: 8, cellPadding: 3, overflow: "linebreak" }, headStyles: { fillColor: [30, 58, 95], textColor: [255, 255, 255], fontStyle: "bold", halign: "center" }, alternateRowStyles: { fillColor: [248, 250, 252] }, margin: { left: ml, right: ml } });
+        doc.save(`Rekap-Aspirasi_${new Date().toISOString().split("T")[0]}.pdf`);
+      } else if (fmt === "word") {
+        await exportToWord(data, { schoolName: "SMA Negeri 1 Kendal" });
+      } else if (fmt === "excel") {
+        await exportToExcel(data, { schoolName: "SMA Negeri 1 Kendal" });
+      } else if (fmt === "pptx") {
+        await exportToPptx(data, { schoolName: "SMA Negeri 1 Kendal" });
+      }
+      toast({ title: `${fmt.toUpperCase()} berhasil diunduh` });
+    } catch (e: any) {
+      console.error("Export error:", e);
+      toast({ title: `Gagal export ${fmt.toUpperCase()}`, description: e.message, variant: "destructive" });
+    }
+  };
+
+  const executeTool = (tc: any): { forModel: any; friendly: string; exportIds?: string[] } => {
     const fn = tc.function;
     let args: any = {};
     try { args = JSON.parse(fn.arguments || "{}"); } catch { args = {}; }
@@ -172,9 +212,7 @@ const AdminAiPage = () => {
         const ids: string[] = args.ids || [];
         const newStatus = args.status || "sudah_ditanggapi";
         (async () => {
-          for (const id of ids) {
-            await supabase.from("aspirations").update({ status: newStatus }).eq("id", id);
-          }
+          for (const id of ids) await supabase.from("aspirations").update({ status: newStatus }).eq("id", id);
           fetchAspirations();
         })();
         return { forModel: { updated: ids.length, status: newStatus }, friendly: `${ids.length} aspirasi ditandai ${statusText(newStatus)}` };
@@ -193,30 +231,9 @@ const AdminAiPage = () => {
           return { forModel: { error: "Tidak ada data untuk diekspor" }, friendly: "Tidak ada data" };
         }
 
-        // Fire and forget — download will start in browser
-        (async () => {
-          try {
-            if (fmt === "pdf") {
-              const doc = new jsPDF("l", "mm", "a4");
-              doc.setFontSize(20); doc.setFont("helvetica", "bold"); doc.setTextColor(30, 58, 95);
-              doc.text("REKAP ASPIRASI SISWA", doc.internal.pageSize.getWidth() / 2, 18, { align: "center" });
-              doc.setFontSize(9); doc.setFont("helvetica", "normal"); doc.setTextColor(107, 114, 128);
-              doc.text(`${format(new Date(), "d MMMM yyyy, HH:mm", { locale: idLocale })} — ${exportData.length} aspirasi`, doc.internal.pageSize.getWidth() / 2, 25, { align: "center" });
-              const tableData = exportData.map((asp, i) => [(i + 1).toString(), sanitizeForPDF(asp.student_name), sanitizeForPDF(asp.student_class || "-"), sanitizeForPDF(asp.content), asp.status === "sudah_ditanggapi" ? "Sudah" : "Belum", new Date(asp.created_at).toLocaleDateString("id-ID")]);
-              const colW = [12, 30, 22, 100, 25, 25]; const tw = colW.reduce((a, b) => a + b, 0); const ml = (doc.internal.pageSize.getWidth() - tw) / 2;
-              autoTable(doc, { startY: 32, head: [["No", "Nama", "Kelas", "Isi Aspirasi", "Status", "Tanggal"]], body: tableData, styles: { fontSize: 8, cellPadding: 3, overflow: "linebreak" }, headStyles: { fillColor: [30, 58, 95], textColor: [255, 255, 255], fontStyle: "bold", halign: "center" }, alternateRowStyles: { fillColor: [248, 250, 252] }, margin: { left: ml, right: ml } });
-              doc.save(`Rekap-Aspirasi_${new Date().toISOString().split("T")[0]}.pdf`);
-            } else if (fmt === "word") {
-              await exportToWord(exportData, { schoolName: "SMA Negeri 1 Kendal" });
-            } else if (fmt === "excel") {
-              await exportToExcel(exportData, { schoolName: "SMA Negeri 1 Kendal" });
-            } else if (fmt === "pptx") {
-              await exportToPptx(exportData, { schoolName: "SMA Negeri 1 Kendal" });
-            }
-          } catch (e) { console.error("Export error:", e); }
-        })();
-
-        return { forModel: { exported: exportData.length, format: fmt }, friendly: `Export ${fmt.toUpperCase()} untuk ${exportData.length} aspirasi dimulai` };
+        // Return exportIds so frontend can show download button
+        const exportIds = exportData.map((a) => a.id);
+        return { forModel: { exported: exportData.length, format: fmt, ids: exportIds }, friendly: `Export ${fmt.toUpperCase()} siap`, exportIds };
       }
       case "delete_aspirations": {
         const ids: string[] = args.ids || [];
@@ -255,7 +272,7 @@ const AdminAiPage = () => {
 
   const runAgentTurn = async (history: ChatMsg[], depth: number) => {
     if (depth >= MAX_AUTO_STEPS) { setIsLoading(false); return; }
-    setStepLabel("🤔 Thinking...");
+    setStepLabel("Berpikir...");
 
     try {
       const context = {
@@ -290,16 +307,22 @@ const AdminAiPage = () => {
 
       if (data?.tool_calls && data.tool_calls.length > 0) {
         const toolNames = data.tool_calls.map((tc: any) => tc.function.name).join(", ");
-        setStepLabel(`⚡ ${toolNames}`);
+        setStepLabel(toolNames);
 
-        const toolMsgs: ChatMsg[] = data.tool_calls.map((tc: any) => {
-          const { forModel } = executeTool(tc);
-          return { role: "tool" as const, tool_call_id: tc.id, name: tc.function.name, content: JSON.stringify(forModel) };
-        });
+        const toolMsgs: ChatMsg[] = [];
+        const allExportIds: string[] = [];
+
+        for (const tc of data.tool_calls) {
+          const { forModel, friendly, exportIds } = executeTool(tc);
+          toolMsgs.push({ role: "tool" as const, tool_call_id: tc.id, name: tc.function.name, content: JSON.stringify(forModel) });
+          if (exportIds && exportIds.length > 0) allExportIds.push(...exportIds);
+        }
+
+        if (allExportIds.length > 0) setLastExportIds(allExportIds);
 
         const afterTools = [...history, assistantMsg, ...toolMsgs];
         setMessages(afterTools);
-        setStepLabel("📊 Analyzing...");
+        setStepLabel("Menganalisis...");
         await runAgentTurn(afterTools, depth + 1);
         return;
       }
@@ -322,17 +345,23 @@ const AdminAiPage = () => {
   };
 
   // Render items
-  const renderItems: { assistant: ChatMsg | null; user?: ChatMsg; toolFriendly: string[]; hasCluster: boolean }[] = [];
+  const renderItems: { assistant: ChatMsg | null; user?: ChatMsg; toolFriendly: string[]; hasCluster: boolean; hasExport: boolean; exportFormat: string }[] = [];
   for (let i = 0; i < messages.length; i++) {
     const m = messages[i];
     if (m.role === "tool") continue;
-    if (m.role === "user") { renderItems.push({ assistant: null, user: m, toolFriendly: [], hasCluster: false }); continue; }
+    if (m.role === "user") { renderItems.push({ assistant: null, user: m, toolFriendly: [], hasCluster: false, hasExport: false, exportFormat: "" }); continue; }
     const toolFriendly: string[] = [];
     let hasCluster = false;
+    let hasExport = false;
+    let exportFormat = "";
     let j = i + 1;
     while (j < messages.length && messages[j].role === "tool") {
       const tm = messages[j];
       if (tm.name === "cluster_topics") hasCluster = true;
+      if (tm.name === "trigger_export") {
+        hasExport = true;
+        try { const r = JSON.parse(tm.content); exportFormat = r.format || "pdf"; } catch { exportFormat = "pdf"; }
+      }
       const tc = m.tool_calls?.find((t: any) => t.id === tm.tool_call_id);
       if (tc) {
         try {
@@ -349,7 +378,7 @@ const AdminAiPage = () => {
             select_aspirations: `${result.selected ?? 0} aspirasi dicentang`,
             mark_aspirations_status: `${result.updated ?? 0} ditandai ${statusText(args.status)}`,
             apply_filters: "Filter diterapkan",
-            trigger_export: `Export ${String(args.format).toUpperCase()}`,
+            trigger_export: `Export ${String(args.format).toUpperCase()} siap`,
             delete_aspirations: `Usulan hapus ${result.proposed_delete ?? 0}`,
           };
           toolFriendly.push(friendlyMap[name] || name);
@@ -357,11 +386,11 @@ const AdminAiPage = () => {
       }
       j++;
     }
-    renderItems.push({ assistant: m, toolFriendly, hasCluster });
+    renderItems.push({ assistant: m, toolFriendly, hasCluster, hasExport, exportFormat });
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-background via-primary/5 to-accent/5 relative overflow-hidden">
+    <div className="h-screen flex flex-col bg-gradient-to-br from-background via-primary/5 to-accent/5 relative overflow-hidden">
       <div className="absolute inset-0 overflow-hidden pointer-events-none">
         <div className="absolute top-0 left-1/4 w-96 h-96 bg-primary/10 rounded-full blur-3xl animate-pulse" />
         <div className="absolute bottom-0 right-1/4 w-96 h-96 bg-accent/10 rounded-full blur-3xl animate-pulse" style={{ animationDelay: '1s' }} />
@@ -369,11 +398,11 @@ const AdminAiPage = () => {
 
       <ThemeToggle />
 
-      {/* Header */}
-      <div className="sticky top-0 z-30 bg-card/80 backdrop-blur-xl border-b border-border/50">
+      {/* Header — FIXED */}
+      <div className="sticky top-0 z-30 bg-card/90 backdrop-blur-xl border-b border-border/50 shrink-0">
         <div className="container mx-auto px-4 py-3 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <Button variant="ghost" size="sm" onClick={() => navigate("/admin/dashboard")} className="hover:scale-105">
+            <Button variant="ghost" size="sm" onClick={() => navigate("/admin/dashboard")}>
               <ArrowLeft className="h-4 w-4 mr-1" />Dashboard
             </Button>
             <div className="h-6 w-px bg-border" />
@@ -387,18 +416,16 @@ const AdminAiPage = () => {
               </div>
             </div>
           </div>
-          <div className="flex items-center gap-2">
-            <Button variant="outline" size="sm" onClick={handleClearChat} className="text-xs gap-1.5 hover:scale-105">
-              <RotateCcw className="h-3.5 w-3.5" />Reset Chat
-            </Button>
-          </div>
+          <Button variant="outline" size="sm" onClick={handleClearChat} className="text-xs gap-1.5">
+            <RotateCcw className="h-3.5 w-3.5" />Reset
+          </Button>
         </div>
       </div>
 
-      {/* Messages — FULL WIDTH */}
-      <div className="container mx-auto px-4 py-6 relative z-10">
-        <div className="max-w-5xl mx-auto">
-          <div ref={scrollRef} className="space-y-4 min-h-[60vh]">
+      {/* Messages — SCROLLABLE */}
+      <div ref={scrollRef} className="flex-1 overflow-y-auto">
+        <div className="container mx-auto px-4 py-6 relative z-10">
+          <div className="max-w-4xl mx-auto space-y-4 pb-4">
             {renderItems.map((item, i) => {
               if (item.user) {
                 return (
@@ -421,11 +448,11 @@ const AdminAiPage = () => {
                   <div className="max-w-[85%] space-y-2 min-w-0">
                     {msg.content && (
                       <div className="rounded-2xl rounded-tl-md px-5 py-4 text-sm leading-relaxed bg-card border border-border/50 shadow-sm">
-                        <div className="prose prose-sm dark:prose-invert max-w-none prose-p:my-1 prose-ul:my-1 prose-li:my-0 prose-strong:text-foreground prose-table:max-w-full overflow-x-auto">
+                        <div className="prose prose-sm dark:prose-invert max-w-none prose-p:my-1 prose-ul:my-1 prose-li:my-0 prose-strong:text-foreground">
                           <ReactMarkdown
                             remarkPlugins={[remarkGfm]}
                             components={{
-                              table: ({ children, ...props }) => <div className="overflow-x-auto my-2"><table className="ai-markdown-table" {...props}>{children}</table></div>,
+                              table: ({ children, ...props }) => <div className="overflow-x-auto my-2 border rounded-lg"><table className="ai-markdown-table" {...props}>{children}</table></div>,
                               thead: ({ children, ...props }) => <thead {...props}>{children}</thead>,
                               tbody: ({ children, ...props }) => <tbody {...props}>{children}</tbody>,
                               tr: ({ children, ...props }) => <tr {...props}>{children}</tr>,
@@ -439,6 +466,7 @@ const AdminAiPage = () => {
                       </div>
                     )}
 
+                    {/* Tool chips */}
                     {item.toolFriendly.length > 0 && (
                       <div className="flex flex-wrap gap-1.5">
                         {msg.tool_calls?.map((tc: any, j: number) => (
@@ -450,6 +478,23 @@ const AdminAiPage = () => {
                       </div>
                     )}
 
+                    {/* Download buttons — muncul setelah export */}
+                    {item.hasExport && (
+                      <div className="flex flex-wrap gap-2 mt-2">
+                        {["pdf", "word", "excel", "pptx"].map((fmt) => (
+                          <Button key={fmt} variant="outline" size="sm" className="h-9 text-xs gap-1.5"
+                            onClick={() => handleExport(fmt, lastExportIds.length > 0 ? lastExportIds : undefined)}>
+                            {fmt === "pdf" && <FileText className="h-3.5 w-3.5" />}
+                            {fmt === "word" && <FileText className="h-3.5 w-3.5" />}
+                            {fmt === "excel" && <FileSpreadsheet className="h-3.5 w-3.5" />}
+                            {fmt === "pptx" && <Presentation className="h-3.5 w-3.5" />}
+                            Download {fmt.toUpperCase()}
+                          </Button>
+                        ))}
+                      </div>
+                    )}
+
+                    {/* Cluster cards */}
                     {item.hasCluster && topicGroups.length > 0 && (
                       <div className="space-y-3 mt-3">
                         {topicGroups.map((g, j) => (
@@ -460,17 +505,14 @@ const AdminAiPage = () => {
                             </div>
                             <p className="text-sm text-muted-foreground mb-3">{g.summary}</p>
                             <div className="flex flex-wrap gap-2">
-                              <Button variant="outline" size="sm" className="h-8 text-xs" onClick={() => { }}>
-                                <ListChecks className="mr-1 h-3 w-3" />Pilih
-                              </Button>
-                              <Button variant="outline" size="sm" className="h-8 text-xs" onClick={() => { }}>
+                              <Button variant="outline" size="sm" className="h-8 text-xs" onClick={() => handleExport("word", g.aspiration_ids)}>
                                 <Download className="mr-1 h-3 w-3" />Word
                               </Button>
-                              <Button variant="outline" size="sm" className="h-8 text-xs" onClick={() => { }}>
+                              <Button variant="outline" size="sm" className="h-8 text-xs" onClick={() => handleExport("excel", g.aspiration_ids)}>
                                 <Download className="mr-1 h-3 w-3" />Excel
                               </Button>
-                              <Button variant="outline" size="sm" className="h-8 text-xs text-destructive" onClick={() => { }}>
-                                <Trash2 className="mr-1 h-3 w-3" />Hapus
+                              <Button variant="outline" size="sm" className="h-8 text-xs" onClick={() => handleExport("pptx", g.aspiration_ids)}>
+                                <Download className="mr-1 h-3 w-3" />PPT
                               </Button>
                             </div>
                           </Card>
@@ -495,26 +537,25 @@ const AdminAiPage = () => {
               </div>
             )}
           </div>
+        </div>
+      </div>
 
-          {/* Input — STICKY BOTTOM */}
-          <div className="sticky bottom-0 pt-4 pb-2 bg-gradient-to-t from-background via-background to-transparent">
-            <div className="flex gap-3 max-w-5xl mx-auto">
-              <Input
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && handleSend()}
-                placeholder="Ketik perintah... (contoh: 'Cari aspirasi soal kantin, kelompokkan, lalu export Word')"
-                className="flex-1 h-12 text-sm rounded-xl border-2 focus:border-primary"
-                disabled={isLoading || dataLoading}
-              />
-              <Button onClick={handleSend} disabled={isLoading || !input.trim() || dataLoading}
-                className="h-12 w-12 p-0 rounded-xl bg-gradient-to-r from-primary to-accent hover:opacity-90 shadow-lg">
-                {isLoading ? <Loader2 className="h-5 w-5 animate-spin" /> : <Send className="h-5 w-5" />}
-              </Button>
-            </div>
-            <p className="text-[10px] text-muted-foreground text-center mt-2 max-w-5xl mx-auto">
-              AI bisa mencari, statistik, kelompokkan topik, tandai status, filter, ekspor 4 format, tag, dan usul hapus.
-            </p>
+      {/* Input — FIXED BOTTOM */}
+      <div className="sticky bottom-0 z-30 bg-card/90 backdrop-blur-xl border-t border-border/50 shrink-0">
+        <div className="container mx-auto px-4 py-3">
+          <div className="flex gap-3 max-w-4xl mx-auto">
+            <Input
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && handleSend()}
+              placeholder="Ketik perintah... (contoh: 'Cari aspirasi soal kantin, lalu export Word')"
+              className="flex-1 h-11 text-sm rounded-xl border-2 focus:border-primary"
+              disabled={isLoading || dataLoading}
+            />
+            <Button onClick={handleSend} disabled={isLoading || !input.trim() || dataLoading}
+              className="h-11 w-11 p-0 rounded-xl bg-gradient-to-r from-primary to-accent hover:opacity-90 shadow-lg">
+              {isLoading ? <Loader2 className="h-5 w-5 animate-spin" /> : <Send className="h-5 w-5" />}
+            </Button>
           </div>
         </div>
       </div>
